@@ -1,0 +1,6 @@
+deal-finder-pro/
+├── index.html
+├── styles.css
+└── assets/
+    ├── logo.png
+    └── app.js
