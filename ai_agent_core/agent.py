@@ -92,6 +92,67 @@ class Agent:
         """Returns a list of available abilities."""
         return list(self.action_executor.abilities_registry.keys())
 
+    def get_abilities_schema(self):
+        """Returns the detailed schema for all available abilities."""
+        # This assumes ABILITIES_METADATA is imported or accessible here
+        from .action.abilities import ABILITIES_METADATA
+        return ABILITIES_METADATA
+
+    def execute_visual_plan(self, visual_plan_data: dict):
+        """
+        Executes a plan provided in the visual plan JSON format.
+        """
+        print(f"Agent {self.agent_id} received visual plan for execution: {visual_plan_data.get('plan_name', 'Unnamed Plan')}")
+
+        executable_steps = []
+        nodes = visual_plan_data.get("nodes", [])
+
+        # Assuming sequential execution based on node order for now.
+        # Edges could be used for more complex dependency resolution if needed.
+        for node in nodes:
+            if not node.get("ability_key") or not node.get("id"):
+                print(f"Warning: Skipping invalid node in visual plan: {node}")
+                continue
+
+            action_step = {
+                "ability_name": node["ability_key"],
+                "node_id": node["id"] # Pass node_id for result tracking
+            }
+            # Add parameters from the node to the action_step
+            # The action_executor will handle {{PREVIOUS_SUCCESSFUL_OUTPUT}}
+            action_step.update(node.get("parameters", {}))
+            executable_steps.append(action_step)
+
+        if not executable_steps:
+            print("No executable steps found in the visual plan.")
+            return {
+                "agent_id": self.agent_id,
+                "plan_name": visual_plan_data.get('plan_name'),
+                "status": "empty_plan",
+                "message": "No executable steps derived from the visual plan.",
+                "execution_results": []
+            }
+
+        print(f"Converted visual plan to executable steps: {executable_steps}")
+
+        # The action_executor's execute_plan method will handle the actual execution
+        # including substitution of {{PREVIOUS_SUCCESSFUL_OUTPUT}}
+        execution_results = self.action_executor.execute_plan(executable_steps)
+
+        final_response = {
+            "agent_id": self.agent_id,
+            "plan_name": visual_plan_data.get('plan_name'),
+            "status": "completed", # Or "completed_with_errors" if any step failed
+            "execution_results": execution_results
+        }
+
+        # Check if any step failed to adjust overall status
+        if any(result.get("status") == "error" for result in execution_results):
+            final_response["status"] = "completed_with_errors"
+
+        print(f"Agent {self.agent_id} finished executing visual plan. Response: {final_response}")
+        return final_response
+
 # Example Usage (for testing purposes, normally an agent would be run by a host system)
 if __name__ == '__main__':
     # This part will likely cause an error if run directly without proper package setup
