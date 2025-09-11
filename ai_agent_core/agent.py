@@ -263,6 +263,43 @@ if __name__ == '__main__':
                     print(f"\nError during music generation ability execution '{result.get('ability_name')}': {result.get('message')}")
 
         print("-" * 30)
+        print("--- Testing Chained Request: Poem to HTML ---")
+
+        chained_request_string = "Generate a poem about 'robots' with 2 lines AND THEN create an HTML page titled 'Robot Poem' with heading 'Robots are Cool' and use the poem as body content."
+        print(f"\nSending chained request to agent: '{chained_request_string}'")
+        chained_response = test_agent.process_request(chained_request_string)
+
+        print("\n--- Agent Response (Chained Request) ---")
+        print(json.dumps(chained_response, indent=2))
+        print("--- End of Agent Response (Chained Request) ---")
+
+        if chained_response and chained_response.get("execution_results"):
+            print("\n--- Chained Execution Results ---")
+            poem_output = None
+            html_output = None
+            for result in chained_response["execution_results"]:
+                if result.get("ability_name") == "text_generation_ability.generate_poem" and \
+                   result.get("status") == "success":
+                    poem_output = result.get("result")
+                    print(f"\nSuccessfully generated Poem:\n{poem_output}")
+                elif result.get("ability_name") == "html_generation_ability.generate_html" and \
+                     result.get("status") == "success":
+                    html_output = result.get("result")
+                    print(f"\nSuccessfully generated HTML:\n{html_output}")
+                elif result.get("status") == "error":
+                    print(f"\nError during ability execution '{result.get('ability_name')}': {result.get('message')}")
+
+            if poem_output and html_output and poem_output in html_output:
+                print("\nChaining Verification: Poem content was found in HTML output.")
+            elif poem_output and html_output:
+                print("\nChaining Verification Warning: Poem content NOT found in HTML output.")
+            elif poem_output and not html_output and any(res.get("ability_name") == "html_generation_ability.generate_html" and res.get("status") == "error" for res in chained_response["execution_results"]):
+                print("\nChaining Note: HTML generation failed, so poem could not be embedded.")
+            elif not poem_output and any(res.get("ability_name") == "text_generation_ability.generate_poem" and res.get("status") == "error" for res in chained_response["execution_results"]):
+                print("\nChaining Note: Poem generation failed, so it could not be used in HTML.")
+
+
+        print("-" * 30)
         print(f"Agent {test_agent.agent_id} available abilities: {test_agent.get_available_abilities()}")
         print("--- Example Run Finished ---")
 

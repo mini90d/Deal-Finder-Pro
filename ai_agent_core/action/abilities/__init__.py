@@ -6,8 +6,21 @@
 # from .basic_abilities import greet
 # from .file_system_abilities import read_file, write_file
 
-# A simple way to register abilities could be a dictionary
+# ABILITIES_REGISTRY: Stores callable ability functions/methods, keyed by a unique string identifier.
+# Example: ABILITIES_REGISTRY['my_ability.do_something'] = do_something_function
 ABILITIES_REGISTRY = {}
+
+# ABILITIES_METADATA: Stores schema information about each ability. This is crucial for:
+#   - UI Generation: To dynamically create forms for users to input parameters.
+#   - Planning: Especially for chained actions, the Planner uses this to understand:
+#       - `produces_outputs`: A list of output objects, each with a "name" and "type".
+#                            The "name" is used by the ActionExecutor to store the result
+#                            and by the Planner to create placeholders (e.g., {{node_id.output_name}}).
+#       - `can_accept_previous_output_for`: A list of parameter names for this ability
+#                                          that are eligible to receive output from a previous action in a chain.
+#                                          The Planner checks this to link actions.
+#   - Action Execution: The ActionExecutor uses `produces_outputs` to correctly key the outputs
+#                       of an executed step, making them available for subsequent steps.
 ABILITIES_METADATA = {}
 
 # Example of a simple ability directly in __init__ for demonstration
@@ -92,8 +105,12 @@ if 'text_generation_ability.generate_poem' in ABILITIES_REGISTRY:
             {"name": "topic", "type": "str", "prompt": "Enter the topic for the poem (e.g., nature, stars):", "default": None},
             {"name": "num_lines", "type": "int", "prompt": "Enter the number of lines for the poem:", "default": 4}
         ],
+        # "can_accept_previous_output_for": Specifies which parameters can be filled by a previous action's output.
+        # For generate_poem, it doesn't typically accept chained input for its primary parameters like 'topic'.
         "can_accept_previous_output_for": [],
-        "produces_output_type": "str",
+        "produces_output_type": "str", # General type of output.
+        # "produces_outputs": Defines the named output(s) of this ability.
+        # The "name" (e.g., "generated_poem") is critical for chaining, as it's used in placeholders like {{node_id.generated_poem}}.
         "produces_outputs": [{"name": "generated_poem", "type": "str", "description": "The full text of the generated poem."}]
     }
 
@@ -108,8 +125,11 @@ if 'html_generation_ability.generate_html' in ABILITIES_REGISTRY:
             {"name": "heading_text", "type": "str", "prompt": "Enter the main heading for the page:", "default": "Welcome"},
             {"name": "body_content", "type": "str", "prompt": "Enter the body content for the page:", "default": "Hello, world!"}
         ],
+        # This ability can accept a previous action's output for its 'body_content', 'title', or 'heading_text' parameters.
+        # The Planner uses this to determine if a chain is possible.
         "can_accept_previous_output_for": ["body_content", "title", "heading_text"],
         "produces_output_type": "html_str",
+        # This ability produces an HTML document, which is named "html_document".
         "produces_outputs": [{"name": "html_document", "type": "html_str", "description": "The complete HTML document."}]
     }
 

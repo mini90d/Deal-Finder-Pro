@@ -14,34 +14,34 @@ class Parser:
         """
         print(f"Parsing request: {raw_request}")
 
-        # Check for chained commands first
-        # Using a case-insensitive split for " AND THEN "
+        # Check for chained commands first using " AND THEN " as a delimiter.
+        # This allows users to specify sequences of actions, e.g., "Generate a poem AND THEN make an HTML page with it."
+        # The Planner will later be responsible for potentially linking the output of the first action
+        # to the input of the second action if their abilities are compatible.
         import re
         chain_delimiter_match = re.search(r"\s+AND\s+THEN\s+", raw_request, re.IGNORECASE)
 
         if chain_delimiter_match:
-            delimiter = chain_delimiter_match.group(0) # Get the actual matched delimiter
-            parts = raw_request.split(delimiter, 1)
+            delimiter = chain_delimiter_match.group(0) # Get the actual matched delimiter (e.g., " AND THEN ")
+            parts = raw_request.split(delimiter, 1) # Split into two parts at the first occurrence
+
             if len(parts) == 2:
                 print(f"Chained command detected. Part 1: '{parts[0]}', Part 2: '{parts[1]}'")
-                # Recursively parse sub-requests
-                # Note: This simple recursion doesn't handle arbitrarily deep chains well
-                # or prevent issues if a sub-request itself is a malformed chain.
-                # For this exercise, we assume a max of two chained commands for simplicity.
+                # Recursively parse each part of the chained command.
+                # This creates a nested structure where each sub-request is itself a parsed command.
+                # Example: parsed_part1 = {"intent": "generate_poem", ...}, parsed_part2 = {"intent": "generate_html_page", ...}
                 parsed_part1 = self.parse_request(parts[0].strip())
                 parsed_part2 = self.parse_request(parts[1].strip())
 
-                # If either sub-parsing fails, the whole chain might be considered failed or partially valid.
-                # For now, let's assume they must both parse to something recognizable or carry their own errors.
-
+                # The overall intent is "chained_actions", and it holds the sub-requests.
                 return {
                     "intent": "chained_actions",
-                    "raw": raw_request,
-                    "sub_requests": [parsed_part1, parsed_part2],
-                    "chain_delimiter": delimiter.strip() # Store for potential future use
+                    "raw": raw_request, # The original full request string
+                    "sub_requests": [parsed_part1, parsed_part2], # List of parsed sub-requests
+                    "chain_delimiter": delimiter.strip()
                 }
-            else: # Should not happen with split(..., 1) but as a safeguard
-                print(f"Warning: Chained command detected but split resulted in {len(parts)} parts.")
+            else: # Should not happen with split(..., 1) on a successful match, but as a safeguard.
+                print(f"Warning: Chained command delimiter found, but split resulted in {len(parts)} parts. Proceeding as single command.")
                 # Fall through to normal parsing for the whole raw_request
 
         # If not a chained command (or if split failed unexpectedly), proceed with normal parsing

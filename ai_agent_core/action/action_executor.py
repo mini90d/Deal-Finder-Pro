@@ -31,70 +31,80 @@ class ActionExecutor:
             executed_steps_outputs = {}
 
         try:
+            # Consolidate parameters for the ability.
+            # Parameters can be directly under action_step or within a 'params' sub-dictionary.
             params_for_ability = {}
-            if "params" in action_step:
+            if "params" in action_step: # Older structure might have a 'params' key
                 params_for_ability.update(action_step["params"])
 
-            known_action_keys = ["action", "ability_name", "params"]
+            # Merge other keys from action_step as parameters, excluding known control keys.
+            known_action_keys = ["action", "ability_name", "params"] # 'node_id' was already popped
             for key, value in action_step.items():
                 if key not in known_action_keys and key not in params_for_ability:
                     params_for_ability[key] = value
 
-            # Handle new placeholder format: {{node_id.output_name}}
+            # Resolve placeholders in parameter values.
+            # Placeholders like {{node_id.output_name}} allow dynamic data flow between actions.
             for param_key, param_value in list(params_for_ability.items()):
                 if isinstance(param_value, str):
-                    new_param_value = param_value
-                    placeholders = re.findall(r"\{\{([^}]+)\}\}", param_value) # Find all {{...}}
+                    new_param_value = param_value # Start with the original value
+                    # Find all occurrences of {{placeholder_content}}
+                    placeholders = re.findall(r"\{\{([^}]+)\}\}", param_value)
 
-                    for placeholder_key in placeholders:
-                        # Check for old placeholder format first for backward compatibility / simple chaining
-                        if placeholder_key == "PREVIOUS_SUCCESSFUL_OUTPUT":
-                            # This assumes 'previous_successful_output' is implicitly the 'default_output' of the immediately preceding node.
-                            # This part of the logic might need to be more robust or rely on explicit node_id.output_name.
-                            # For now, let's try to find the last executed node's default output.
-                            # This is a simplification; a more robust system would need to track execution order.
-                            last_node_output = None
-                            if executed_steps_outputs: # If there are any outputs
-                                # Get the output of the numerically last node (assuming sequential node_ids like node_0, node_1)
-                                # This is a heuristic and might not be robust for all scenarios (e.g. parallel execution)
+                    for placeholder_key_content in placeholders:
+                        # Check for the old "PREVIOUS_SUCCESSFUL_OUTPUT" placeholder for basic chaining.
+                        # This is a simpler form and relies on the immediately preceding step's output.
+                        if placeholder_key_content == "PREVIOUS_SUCCESSFUL_OUTPUT":
+                            last_node_output_value = None
+                            if executed_steps_outputs:
+                                # Attempt to get the output of the numerically last executed node.
+                                # This is a heuristic for simple sequential plans.
                                 last_executed_node_id = sorted(executed_steps_outputs.keys())[-1] if executed_steps_outputs else None
                                 if last_executed_node_id:
                                     outputs_of_last_node = executed_steps_outputs.get(last_executed_node_id, {})
-                                    if "default_output" in outputs_of_last_node: # Check for fallback name
-                                        last_node_output = outputs_of_last_node["default_output"]
-                                    elif outputs_of_last_node: # Take the first available output if no "default_output"
-                                        last_node_output = next(iter(outputs_of_last_node.values()))
+                                    # Prefer "default_output" if available, otherwise take the first output found.
+                                    if "default_output" in outputs_of_last_node:
+                                        last_node_output_value = outputs_of_last_node["default_output"]
+                                    elif outputs_of_last_node:
+                                        last_node_output_value = next(iter(outputs_of_last_node.values()))
 
-                            if last_node_output is not None:
-                                print(f"Node {node_id}: Replacing legacy placeholder '{{{{PREVIOUS_SUCCESSFUL_OUTPUT}}}}' for '{param_key}' with output from last step.")
-                                if param_value == "{{PREVIOUS_SUCCESSFUL_OUTPUT}}": # Placeholder is the entire value
-                                    new_param_value = last_node_output
-                                else: # Placeholder is part of a larger string
-                                    new_param_value = new_param_value.replace("{{PREVIOUS_SUCCESSFUL_OUTPUT}}", str(last_node_output))
+                            if last_node_output_value is not None:
+                                print(f"Node {node_id}: Replacing legacy placeholder '{{{{PREVIOUS_SUCCESSFUL_OUTPUT}}}}' for '{param_key}'.")
+                                # If the placeholder is the entire string, replace it directly.
+                                if param_value == "{{PREVIOUS_SUCCESSFUL_OUTPUT}}":
+                                    new_param_value = last_node_output_value
+                                else: # If part of a larger string, perform string replacement.
+                                    new_param_value = new_param_value.replace("{{PREVIOUS_SUCCESSFUL_OUTPUT}}", str(last_node_output_value))
                             else:
-                                print(f"Node {node_id}: Warning: Legacy placeholder {{PREVIOUS_SUCCESSFUL_OUTPUT}} used for '{param_key}' but no suitable previous output found.")
+                                print(f"Node {node_id}: Warning: Legacy placeholder {{PREVIOUS_SUCCESSFUL_OUTPUT}} for '{param_key}' but no previous output found. Replacing with empty string.")
                                 if param_value == "{{PREVIOUS_SUCCESSFUL_OUTPUT}}": new_param_value = ""
                                 else: new_param_value = new_param_value.replace("{{PREVIOUS_SUCCESSFUL_OUTPUT}}", "")
 
-                        else: # New placeholder format: {{node_id.output_name}}
-                            parts = placeholder_key.split('.', 1)
+                        else:
+                            # Handle new, more specific placeholder format: {{node_id.output_name}}
+                            # This format allows referencing a specific output from a specific prior step (node).
+                            parts = placeholder_key_content.split('.', 1)
                             if len(parts) == 2:
                                 source_node_id, output_key_name = parts
+                                # Look up the source_node_id in the dictionary of outputs from already executed steps.
                                 source_node_outputs = executed_steps_outputs.get(source_node_id)
+
                                 if source_node_outputs and output_key_name in source_node_outputs:
                                     replacement_value = source_node_outputs[output_key_name]
-                                    print(f"Node {node_id}: Replacing placeholder '{{{{{placeholder_key}}}}}' for '{param_key}' with value from {source_node_id}.{output_key_name}.")
-                                    if param_value == f"{{{{{placeholder_key}}}}}": # Placeholder is the entire value
+                                    print(f"Node {node_id}: Replacing placeholder '{{{{{placeholder_key_content}}}}}' for '{param_key}' with value from {source_node_id}.{output_key_name}.")
+                                    # Perform replacement, similar to the legacy placeholder.
+                                    if param_value == f"{{{{{placeholder_key_content}}}}}":
                                         new_param_value = replacement_value
-                                    else: # Placeholder is part of a larger string
-                                        new_param_value = new_param_value.replace(f"{{{{{placeholder_key}}}}}", str(replacement_value))
+                                    else:
+                                        new_param_value = new_param_value.replace(f"{{{{{placeholder_key_content}}}}}", str(replacement_value))
                                 else:
-                                    print(f"Node {node_id}: Warning: Output '{placeholder_key}' not found in executed steps. Replacing with empty string.")
-                                    if param_value == f"{{{{{placeholder_key}}}}}": new_param_value = ""
-                                    else: new_param_value = new_param_value.replace(f"{{{{{placeholder_key}}}}}", "")
+                                    print(f"Node {node_id}: Warning: Output '{placeholder_key_content}' not found in executed steps for '{param_key}'. Replacing with empty string.")
+                                    if param_value == f"{{{{{placeholder_key_content}}}}}": new_param_value = ""
+                                    else: new_param_value = new_param_value.replace(f"{{{{{placeholder_key_content}}}}}", "")
                             else:
-                                print(f"Node {node_id}: Warning: Invalid placeholder format '{{{{{placeholder_key}}}}}'. Expected 'node_id.output_name'.")
+                                print(f"Node {node_id}: Warning: Invalid placeholder format '{{{{{placeholder_key_content}}}}}' for '{param_key}'. Expected 'node_id.output_name'.")
 
+                    # Update the parameter with the (potentially) modified value.
                     params_for_ability[param_key] = new_param_value
 
 
@@ -113,34 +123,45 @@ class ActionExecutor:
         """
         Executes a list of action steps (a plan).
         Passes successful outputs from one step to the next if a placeholder is used.
-        Outputs are stored in a structured way: executed_steps_outputs[node_id] = {output_name: value}.
+        Outputs are stored in `executed_steps_outputs` where the key is the `node_id` of the step
+        that produced the output, and the value is a dictionary of its outputs
+        (e.g., `executed_steps_outputs["node_0"] = {"generated_poem": "poem text..."}`).
         """
         print(f"Executing plan: {plan}")
         execution_results = []
-        executed_steps_outputs = {} # Stores outputs of all executed steps
+        # executed_steps_outputs accumulates outputs from all successfully executed steps in the current plan.
+        # This dictionary is passed to each `execute_action` call to enable placeholder resolution.
+        executed_steps_outputs = {}
 
         for action_step in plan:
-            # Pass the *cumulative* outputs of all previously executed steps
-            result = self.execute_action(action_step.copy(), executed_steps_outputs) # Pass a copy of action_step
+            # Execute the current action_step, providing outputs from all *previously* executed steps.
+            result = self.execute_action(action_step.copy(), executed_steps_outputs)
             execution_results.append(result)
 
             if result.get("status") == "success":
-                node_id = result.get("node_id", "unknown_node")
+                node_id = result.get("node_id", "unknown_node") # Node ID of the step just executed.
                 ability_key = result.get("ability_name")
-                actual_output_value = result.get("result")
+                actual_output_value = result.get("result") # The direct return value of the ability.
 
+                # Use ABILITIES_METADATA to determine how to store the output.
+                # The metadata's "produces_outputs" field (a list of output objects, each with a "name")
+                # defines the key under which the output should be stored.
                 ability_schema = ABILITIES_METADATA.get(ability_key)
                 if ability_schema and ability_schema.get("produces_outputs"):
-                    # Assuming single output for now as per current schema design
+                    # Assuming the first output defined in "produces_outputs" is the primary one.
+                    # For abilities producing multiple named outputs, this logic might need extension,
+                    # or the ability itself should return a dictionary of its outputs.
                     output_def_name = ability_schema["produces_outputs"][0]["name"]
+                    # Store the output: executed_steps_outputs["node_X"]["output_name"] = value
                     executed_steps_outputs[node_id] = {output_def_name: actual_output_value}
                 else:
-                    # Fallback if no explicit output definition in schema
+                    # Fallback if no explicit output definition in schema: store under a "default_output" key.
                     executed_steps_outputs[node_id] = {"default_output": actual_output_value}
 
                 print(f"Captured output for Node {node_id}: {executed_steps_outputs[node_id]}")
 
             elif result.get("status") == "error":
+                # If any step in the plan fails, stop further execution of the plan.
                 print(f"Stopping plan execution due to error in step: {action_step.get('ability_name')} (Node ID: {result.get('node_id')})")
                 break
 
